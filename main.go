@@ -97,16 +97,6 @@ func handleIssueOpened(cfg *config, ev issueEvent) {
 	author := ev.Issue.User.Login
 	number := ev.Issue.Number
 
-	first, err := isFirstIssue(token, repo, author)
-	if err != nil {
-		log.Printf("check first issue: %v", err)
-		return
-	}
-	if !first {
-		log.Printf("%s already has other issues in %s, skipping", author, repo)
-		return
-	}
-
 	msg := cfg.CommentMessage
 	if msg == "" {
 		msg = fmt.Sprintf("Selamat datang @%s! 👋 Ini issue pertama kamu di repo ini, terima kasih sudah lapor.", author)
