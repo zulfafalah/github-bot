@@ -2,7 +2,7 @@ services:
   bot:
     build: .
     ports:
-      - "${PORT:-8080}:8080"
+      - "${PORT:-8080}:${PORT:-8080}"
     environment:
       PORT: ${PORT:-8080}
       GITHUB_APP_ID: ${GITHUB_APP_ID}
