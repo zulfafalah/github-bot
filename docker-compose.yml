@@ -4,7 +4,7 @@ services:
     ports:
       - "${PORT:-8080}:8080"
     environment:
-      PORT: 8080
+      PORT: ${PORT:-8080}
       GITHUB_APP_ID: ${GITHUB_APP_ID}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET}
       GITHUB_PRIVATE_KEY_PATH: /run/secrets/app-key.pem
