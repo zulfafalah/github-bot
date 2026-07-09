@@ -1,0 +1,4 @@
+.git
+*.pem
+.env
+fal-github-bot
