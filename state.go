@@ -61,11 +61,11 @@ func saveStateLocked() error {
 	return os.WriteFile(statePath, b, 0o644)
 }
 
-func hasSwitchedEntry(repo string) bool {
+func getSwitchedEntry(repo string) (switchedEntry, bool) {
 	stateMu.Lock()
 	defer stateMu.Unlock()
-	_, ok := state.Switched[repo]
-	return ok
+	e, ok := state.Switched[repo]
+	return e, ok
 }
 
 func recordSwitch(repo string, installationID int64, paths []string) error {
