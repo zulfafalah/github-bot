@@ -4,10 +4,16 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 )
+
+// errNotFound is returned by getFileContent when the path doesn't exist at
+// ref, distinguishing "genuinely gone" from any other (possibly transient)
+// API failure.
+var errNotFound = errors.New("not found")
 
 // githubRequest performs an authenticated GitHub API call and returns the
 // response together with its fully-read body, so callers can inspect the
@@ -134,6 +140,9 @@ func getFileContent(token, repo, path, ref string) (content string, sha string, 
 	resp, body, err := githubRequest(token, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return "", "", err
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return "", "", errNotFound
 	}
 	if resp.StatusCode != http.StatusOK {
 		return "", "", fmt.Errorf("get content %d: %s", resp.StatusCode, body)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -135,8 +136,13 @@ func switchStillActive(cfg *config, token, repo string, entry switchedEntry) (bo
 
 	for _, path := range entry.Paths {
 		content, _, err := getFileContent(token, repo, path, info.DefaultBranch)
+		if errors.Is(err, errNotFound) {
+			continue // file renamed/removed; check the rest of the recorded paths
+		}
 		if err != nil {
-			continue // file may have been renamed/removed; don't let that block detection
+			// A transient failure here must not be mistaken for "the switch
+			// is gone" - that would wrongly clear real, still-active state.
+			return false, fmt.Errorf("get content of %s: %w", path, err)
 		}
 		if hasRunnerLabel(content, cfg.SelfHostedLabel) {
 			return true, nil
@@ -245,9 +251,15 @@ func revertRepoToUbuntu(cfg *config, token, repo string, entry switchedEntry) er
 
 	for _, path := range entry.Paths {
 		content, sha, err := getFileContent(token, repo, path, base)
-		if err != nil {
-			log.Printf("revertRepoToUbuntu: get content of %s in %s: %v", path, repo, err)
+		if errors.Is(err, errNotFound) {
+			log.Printf("revertRepoToUbuntu: %s no longer exists in %s, skipping", path, repo)
 			continue
+		}
+		if err != nil {
+			// Abort rather than silently skip: the caller only clears the
+			// state entry on success, so a transient failure here must
+			// surface as an error to keep the entry around for a retry.
+			return fmt.Errorf("get content of %s: %w", path, err)
 		}
 		newContent, ok := patchRunnerLabel(content, cfg.SelfHostedLabel, "ubuntu-latest")
 		if !ok {
