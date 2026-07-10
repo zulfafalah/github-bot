@@ -14,6 +14,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 )
 
 type issueEvent struct {
@@ -37,6 +38,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	if err := initState(cfg.StateFilePath); err != nil {
+		log.Fatalf("init state: %v", err)
+	}
+	go runMonthlyScheduler(cfg)
 
 	http.HandleFunc("/webhook", webhookHandler(cfg))
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -65,24 +71,30 @@ func webhookHandler(cfg *config) http.HandlerFunc {
 			return
 		}
 
-		if r.Header.Get("X-GitHub-Event") != "issues" {
+		switch r.Header.Get("X-GitHub-Event") {
+		case "issues":
+			var ev issueEvent
+			if err := json.Unmarshal(body, &ev); err != nil {
+				http.Error(w, "bad payload", http.StatusBadRequest)
+				return
+			}
 			w.WriteHeader(http.StatusOK)
-			return
+			if ev.Action == "opened" {
+				go handleIssueOpened(cfg, ev)
+			}
+
+		case "workflow_run":
+			var ev workflowRunEvent
+			if err := json.Unmarshal(body, &ev); err != nil {
+				http.Error(w, "bad payload", http.StatusBadRequest)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			go handleWorkflowRun(cfg, ev)
+
+		default:
+			w.WriteHeader(http.StatusOK)
 		}
-
-		var ev issueEvent
-		if err := json.Unmarshal(body, &ev); err != nil {
-			http.Error(w, "bad payload", http.StatusBadRequest)
-			return
-		}
-
-		w.WriteHeader(http.StatusOK)
-
-		if ev.Action != "opened" {
-			return
-		}
-
-		go handleIssueOpened(cfg, ev)
 	}
 }
 
@@ -138,16 +150,49 @@ type config struct {
 	PrivateKeyPath string
 	PrivateKeyPEM  string
 	CommentMessage string
+
+	// SelfHostedLabel is the runs-on label used when switching a repo's
+	// workflows off ubuntu-latest.
+	SelfHostedLabel string
+	// RateLimitKeywords are matched (case-insensitively) against failed
+	// jobs' names and annotations to decide whether a failure was caused
+	// by a GitHub Actions rate/usage limit.
+	RateLimitKeywords []string
+	// TriggerConclusions are the workflow_run conclusions that trigger a
+	// rate-limit check at all.
+	TriggerConclusions []string
+	// StateFilePath persists which repos/workflows were switched to
+	// self-hosted, so the monthly job knows what to revert.
+	StateFilePath string
+}
+
+var defaultRateLimitKeywords = []string{
+	"rate limit",
+	"secondary rate limit",
+	"api rate limit",
+	"usage limit",
+	"spending limit",
+	"concurrency limit",
+	"concurrent jobs",
+	"exceeded the number of",
+	"you have exceeded",
+	"insufficient funds",
+	"minutes quota",
+	"included minutes",
 }
 
 func loadConfig() (*config, error) {
 	cfg := &config{
-		Port:           envOr("PORT", "8080"),
-		WebhookSecret:  os.Getenv("GITHUB_WEBHOOK_SECRET"),
-		AppID:          os.Getenv("GITHUB_APP_ID"),
-		PrivateKeyPath: os.Getenv("GITHUB_PRIVATE_KEY_PATH"),
-		PrivateKeyPEM:  os.Getenv("GITHUB_PRIVATE_KEY"),
-		CommentMessage: os.Getenv("COMMENT_MESSAGE"),
+		Port:               envOr("PORT", "8080"),
+		WebhookSecret:      os.Getenv("GITHUB_WEBHOOK_SECRET"),
+		AppID:              os.Getenv("GITHUB_APP_ID"),
+		PrivateKeyPath:     os.Getenv("GITHUB_PRIVATE_KEY_PATH"),
+		PrivateKeyPEM:      os.Getenv("GITHUB_PRIVATE_KEY"),
+		CommentMessage:     os.Getenv("COMMENT_MESSAGE"),
+		SelfHostedLabel:    envOr("SELF_HOSTED_RUNNER_LABEL", "self-hosted"),
+		RateLimitKeywords:  envListOr("RATE_LIMIT_KEYWORDS", defaultRateLimitKeywords),
+		TriggerConclusions: envListOr("TRIGGER_CONCLUSIONS", []string{"failure", "startup_failure"}),
+		StateFilePath:      envOr("STATE_FILE_PATH", "./state.json"),
 	}
 
 	if cfg.WebhookSecret == "" {
@@ -168,4 +213,22 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// envListOr reads a comma-separated env var into a trimmed string slice,
+// or returns fallback if unset.
+func envListOr(key string, fallback []string) []string {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

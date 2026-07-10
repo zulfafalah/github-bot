@@ -9,11 +9,19 @@ services:
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET}
       GITHUB_PRIVATE_KEY_PATH: /run/secrets/app-key.pem
       COMMENT_MESSAGE: ${COMMENT_MESSAGE:-}
+      SELF_HOSTED_RUNNER_LABEL: ${SELF_HOSTED_RUNNER_LABEL:-self-hosted}
+      RATE_LIMIT_KEYWORDS: ${RATE_LIMIT_KEYWORDS:-}
+      TRIGGER_CONCLUSIONS: ${TRIGGER_CONCLUSIONS:-failure,startup_failure}
+      STATE_FILE_PATH: /data/state.json
     volumes:
       - ${GITHUB_PRIVATE_KEY_PATH}:/run/secrets/app-key.pem:ro
+      - bot-state:/data
     restart: unless-stopped
 
 networks:
   default:
     external: true
     name: npm-network
+
+volumes:
+  bot-state:
