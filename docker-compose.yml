@@ -13,6 +13,7 @@ services:
       RATE_LIMIT_KEYWORDS: ${RATE_LIMIT_KEYWORDS:-}
       TRIGGER_CONCLUSIONS: ${TRIGGER_CONCLUSIONS:-failure,startup_failure}
       STATE_FILE_PATH: /data/state.json
+      FORCE_MONTHLY_REVERT: ${FORCE_MONTHLY_REVERT:-false}
     volumes:
       - ${GITHUB_PRIVATE_KEY_PATH}:/run/secrets/app-key.pem:ro
       - bot-state:/data
