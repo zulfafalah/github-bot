@@ -44,6 +44,11 @@ func main() {
 	}
 	go runMonthlyScheduler(cfg)
 
+	if cfg.ForceMonthlyRevert {
+		log.Print("FORCE_MONTHLY_REVERT set: running monthly revert immediately (does not count as this month's scheduled run)")
+		go runMonthlyRevert(cfg)
+	}
+
 	http.HandleFunc("/webhook", webhookHandler(cfg))
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -164,6 +169,9 @@ type config struct {
 	// StateFilePath persists which repos/workflows were switched to
 	// self-hosted, so the monthly job knows what to revert.
 	StateFilePath string
+	// ForceMonthlyRevert runs the monthly revert once at startup,
+	// bypassing the "is it the 1st" check. For testing only.
+	ForceMonthlyRevert bool
 }
 
 var defaultRateLimitKeywords = []string{
@@ -193,6 +201,7 @@ func loadConfig() (*config, error) {
 		RateLimitKeywords:  envListOr("RATE_LIMIT_KEYWORDS", defaultRateLimitKeywords),
 		TriggerConclusions: envListOr("TRIGGER_CONCLUSIONS", []string{"failure", "startup_failure"}),
 		StateFilePath:      envOr("STATE_FILE_PATH", "./state.json"),
+		ForceMonthlyRevert: envOr("FORCE_MONTHLY_REVERT", "false") == "true",
 	}
 
 	if cfg.WebhookSecret == "" {
