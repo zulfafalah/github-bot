@@ -21,6 +21,12 @@ func patchRunnerLabel(content, from, to string) (string, bool) {
 	return newContent, true
 }
 
+// hasRunnerLabel reports whether content has a plain-scalar `runs-on: label` line.
+func hasRunnerLabel(content, label string) bool {
+	re := regexp.MustCompile(`(?m)^(\s*runs-on:\s*)(['"]?)` + regexp.QuoteMeta(label) + `(['"]?)\s*$`)
+	return re.MatchString(content)
+}
+
 func isWorkflowFile(name string) bool {
 	return len(name) > 4 && (name[len(name)-4:] == ".yml" || (len(name) > 5 && name[len(name)-5:] == ".yaml"))
 }

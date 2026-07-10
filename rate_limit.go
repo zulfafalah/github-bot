@@ -41,15 +41,26 @@ func handleWorkflowRun(cfg *config, ev workflowRunEvent) {
 
 	repo := ev.Repository.FullName
 
-	if hasSwitchedEntry(repo) {
-		log.Printf("workflow_run: %s already switched to self-hosted, skipping", repo)
-		return
-	}
-
 	token, err := installationToken(cfg, ev.Installation.ID)
 	if err != nil {
 		log.Printf("workflow_run: get installation token: %v", err)
 		return
+	}
+
+	if entry, ok := getSwitchedEntry(repo); ok {
+		stillActive, err := switchStillActive(cfg, token, repo, entry)
+		if err != nil {
+			log.Printf("workflow_run: check existing switch for %s: %v", repo, err)
+			return
+		}
+		if stillActive {
+			log.Printf("workflow_run: %s already switched to self-hosted, skipping", repo)
+			return
+		}
+		log.Printf("workflow_run: %s switch PR was closed without merging, clearing stale state", repo)
+		if err := clearSwitch(repo); err != nil {
+			log.Printf("workflow_run: clear stale state for %s: %v", repo, err)
+		}
 	}
 
 	matched, reason, err := runFailedDueToLimit(token, repo, ev.WorkflowRun.ID, cfg.RateLimitKeywords)
@@ -110,6 +121,28 @@ func runFailedDueToLimit(token, repo string, runID int64, keywords []string) (ma
 		}
 	}
 	return false, "", nil
+}
+
+// switchStillActive reports whether any of the entry's recorded workflow
+// files still carry the self-hosted label on the repo's default branch. If
+// none do, the recorded switch PR was closed without merging (or was later
+// reverted by hand), and the state entry is stale.
+func switchStillActive(cfg *config, token, repo string, entry switchedEntry) (bool, error) {
+	info, err := getRepoInfo(token, repo)
+	if err != nil {
+		return false, fmt.Errorf("get repo info: %w", err)
+	}
+
+	for _, path := range entry.Paths {
+		content, _, err := getFileContent(token, repo, path, info.DefaultBranch)
+		if err != nil {
+			continue // file may have been renamed/removed; don't let that block detection
+		}
+		if hasRunnerLabel(content, cfg.SelfHostedLabel) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // switchRepoToSelfHosted patches every ubuntu-latest runner in the repo's
