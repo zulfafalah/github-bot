@@ -86,7 +86,11 @@ func runFailedDueToLimit(token, repo string, runID int64, keywords []string) (ma
 
 		anns, err := listJobAnnotations(token, repo, j.ID)
 		if err != nil {
-			continue // best-effort; a missing annotation shouldn't abort detection
+			// Best-effort: a missing annotation shouldn't abort detection, but
+			// log it since a permissions gap (the App needs "Checks: Read" to
+			// call this endpoint) would otherwise fail silently as "no match".
+			log.Printf("runFailedDueToLimit: get annotations for job %d in %s: %v", j.ID, repo, err)
+			continue
 		}
 		for _, a := range anns {
 			sb.WriteString(a.Title)
