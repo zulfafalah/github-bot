@@ -5,7 +5,7 @@ on:
 
 jobs:
   fail-on-purpose:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - run: |
           echo "::error::The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings"
