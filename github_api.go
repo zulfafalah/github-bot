@@ -8,7 +8,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
+
+// retryableStatuses are transient server-side failures (e.g. GitHub's
+// "Unicorn" 502 page during backend hiccups) worth retrying; anything else
+// (4xx, etc.) is returned to the caller immediately.
+func isRetryableStatus(code int) bool {
+	return code >= 500
+}
 
 // errNotFound is returned by getFileContent when the path doesn't exist at
 // ref, distinguishing "genuinely gone" from any other (possibly transient)
@@ -19,34 +27,51 @@ var errNotFound = errors.New("not found")
 // response together with its fully-read body, so callers can inspect the
 // status code after the connection is closed.
 func githubRequest(token, method, endpoint string, payload any) (*http.Response, []byte, error) {
-	var body io.Reader
+	var payloadBytes []byte
 	if payload != nil {
 		b, err := json.Marshal(payload)
 		if err != nil {
 			return nil, nil, err
 		}
-		body = bytes.NewReader(b)
+		payloadBytes = b
 	}
 
-	req, err := http.NewRequest(method, endpoint, body)
-	if err != nil {
-		return nil, nil, err
-	}
-	setHeaders(req, token)
-	if payload != nil {
-		req.Header.Set("Content-Type", "application/json")
+	const maxAttempts = 3
+	var resp *http.Response
+	var respBody []byte
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		var body io.Reader
+		if payloadBytes != nil {
+			body = bytes.NewReader(payloadBytes)
+		}
+
+		req, err := http.NewRequest(method, endpoint, body)
+		if err != nil {
+			return nil, nil, err
+		}
+		setHeaders(req, token)
+		if payloadBytes != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+
+		r, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, nil, err
+		}
+		b, err := io.ReadAll(r.Body)
+		r.Body.Close()
+		if err != nil {
+			return nil, nil, err
+		}
+		resp, respBody = r, b
+
+		if !isRetryableStatus(r.StatusCode) || attempt == maxAttempts {
+			break
+		}
+		time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, nil, err
-	}
 	return resp, respBody, nil
 }
 
